@@ -24,6 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from doctorly.core.types import UTCDateTime
 from doctorly.models.base import Base
 from doctorly.models.enums import AppointmentStatus, IngestionJobStatus, UserRole
+from pgvector.sqlalchemy import Vector
 
 """
 Container: Enum ek aisi class hai jo fixed values ko apne andar store karti hai aur hum is par loop chala sakte hain.
@@ -224,3 +225,28 @@ class IngestionJob(TimestampMixin, Base):
         nullable=False,
     )
     error_message: Mapped[str | None] = mapped_column(String(1000))
+
+
+class FAQDocument(TimestampMixin, Base):
+    __tablename__ = "faq_documents"
+    __table_args__ = (
+        Index(
+            "ix_faq_documents_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_with={"m": 16, "ef_construction": 64},
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    document_key: Mapped[str] = mapped_column(
+        String(150), nullable=False, unique=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String(255), nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, nullable=False, default=dict, server_default=text("'{}'")
+    )
+    embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=False)

@@ -52,15 +52,39 @@ infrastructure have not been implemented yet.
    ```
 
 For the PostgreSQL concurrency integration test, set `TEST_DATABASE_URL` to
-the running local PostgreSQL URL before running tests. It creates and drops
-only a temporary, uniquely named schema; it does not alter application tables.
-For example, with the default local Compose database in PowerShell:
+the running local PostgreSQL URL before running tests. PostgreSQL integration
+tests create and drop only uniquely named temporary schemas; they do not alter
+application tables. The retrieval test requires the `vector` extension,
+installed by the current Alembic migration. For example, with the default
+local Compose database in PowerShell:
 
 ```powershell
 $env:TEST_DATABASE_URL = "postgresql+psycopg://doctorly:doctorly@localhost:5432/doctorly"
 uv run pytest
 Remove-Item Env:TEST_DATABASE_URL
 ```
+
+## FAQ retrieval
+
+Apply migrations before ingesting documents, then load the synthetic policy
+examples:
+
+```powershell
+uv run alembic upgrade head
+uv run python scripts/ingest_faqs.py
+```
+
+The first ingestion or retrieval call downloads and caches
+`all-MiniLM-L6-v2` locally. The script reads FAQ entries from
+`scripts/data/hospital_kb.json`, creates stable title-based keys, and embeds
+each title and its content. Ingestion updates documents by stable key, so
+rerunning the command refreshes embeddings instead of duplicating rows.
+
+FAQ retrieval uses pgvector cosine distance and the HNSW index. The generic
+retrieval method accepts a model and SQLAlchemy filter expressions, allowing
+future document models to apply ownership predicates such as `patient_id`
+before nearest-neighbor results are returned. This milestone adds no AI
+generation or LangGraph workflow.
 
 `/health` is a liveness check. `/health/ready` executes a database query and
 returns HTTP 503 when PostgreSQL is unavailable. The database container health

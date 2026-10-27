@@ -19,6 +19,7 @@ COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
 RUN uv sync --frozen --no-dev
 
+COPY scripts ./scripts
 RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app
 USER appuser

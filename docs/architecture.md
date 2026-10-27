@@ -168,3 +168,26 @@ Flagging and status changes are audited.
 The PostgreSQL concurrency integration test requires `TEST_DATABASE_URL`.
 It creates a uniquely named temporary schema and drops that schema on
 completion, leaving application tables and data untouched.
+
+## Milestone 3 FAQ retrieval
+
+`FAQDocument` stores synthetic source content, a stable ingestion key, JSON
+metadata, and a 384-dimensional embedding from
+`sentence-transformers/all-MiniLM-L6-v2`. The Alembic migration enables the
+PostgreSQL `vector` extension and creates an HNSW index with
+`vector_cosine_ops`. The extension is intentionally retained when this
+revision is downgraded because it may be shared by other vector columns.
+
+`EmbeddingService` loads the sentence-transformer locally and returns
+normalized vectors. `RetrievalService.search_faq` uses SQLAlchemy's
+`cosine_distance`, which emits pgvector's `<=>` operator. `<->` is Euclidean
+distance, not cosine distance. `search_documents` reuses the same embedding
+and ranking path for another document model and accepts SQLAlchemy filter
+expressions, including resource-ownership filters such as `patient_id`.
+
+The FAQ ingestion script reads the hospital knowledge-base JSON array from
+`scripts/data/hospital_kb.json`, embeds each title and content, and inserts or
+refreshes each record using a slugified title as its stable key. The first run
+downloads and caches the model; no model is loaded until embedding is
+requested. Retrieval/integration tests require a
+`TEST_DATABASE_URL` whose database has the `vector` extension.
