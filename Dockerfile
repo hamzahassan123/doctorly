@@ -9,19 +9,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN useradd --create-home --uid 10001 appuser
+
 RUN pip install --no-cache-dir uv==0.12.2
 
-COPY pyproject.toml uv.lock README.md ./
+COPY --chown=appuser:appuser pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY src ./src
-COPY alembic.ini ./alembic.ini
-COPY alembic ./alembic
+COPY --chown=appuser:appuser src ./src
+COPY --chown=appuser:appuser alembic.ini ./alembic.ini
+COPY --chown=appuser:appuser alembic ./alembic
 RUN uv sync --frozen --no-dev
 
-COPY scripts ./scripts
-RUN useradd --create-home --uid 10001 appuser \
-    && chown -R appuser:appuser /app
+COPY --chown=appuser:appuser scripts ./scripts
 USER appuser
 
 EXPOSE 8000

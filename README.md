@@ -31,6 +31,15 @@ infrastructure have not been implemented yet.
    at least 32 bytes is configured. Never use the database defaults in
    production.
 
+   To enable non-emergency patient chat, configure `LLM_PROVIDER` and
+   `LLM_MODEL` in `.env` and add the matching provider key. The default is
+   Google Gemini (`LLM_PROVIDER=google`, `LLM_MODEL=gemini-1.5-flash`) using
+   `GEMINI_API_KEY` or `GOOGLE_API_KEY`; OpenAI and Groq use their standard
+   `OPENAI_API_KEY` and `GROQ_API_KEY` variables. Emergency detection and its
+   fixed response work without an LLM key. The FAQ node responds only with
+   retrieved knowledge-base text; it does not ask an LLM to generate FAQ
+   answers.
+
 2. In a second terminal, apply the schema migration:
 
    ```powershell
@@ -85,6 +94,20 @@ retrieval method accepts a model and SQLAlchemy filter expressions, allowing
 future document models to apply ownership predicates such as `patient_id`
 before nearest-neighbor results are returned. This milestone adds no AI
 generation or LangGraph workflow.
+
+## Patient chat
+
+Authenticated patients can send `POST /chat` with `{"message": "..."}`. The
+graph checks emergency phrases before calling the LLM router. Emergency
+messages receive a fixed response directing the patient to the Emergency
+Department and local emergency numbers; this path does not require an LLM key.
+Other messages require a configured LLM provider and its API key. The provider
+and model are selected with `LLM_PROVIDER` and `LLM_MODEL`; Google is included
+by default, while selecting OpenAI or Groq also requires that provider's
+LangChain integration to be installed. FAQ answers consist only of retrieved
+hospital knowledge-base entries; unclear questions receive a clarification
+prompt. Appointment intent lists real available database slots and asks the
+patient to select one; this chat node does not book an appointment.
 
 `/health` is a liveness check. `/health/ready` executes a database query and
 returns HTTP 503 when PostgreSQL is unavailable. The database container health

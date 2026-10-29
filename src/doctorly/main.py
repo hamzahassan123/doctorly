@@ -10,12 +10,15 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from doctorly.api.routes.health import router as health_router
 from doctorly.api.routes.appointments import router as appointments_router
 from doctorly.api.routes.auth import router as auth_router
+from doctorly.api.routes.chat import router as chat_router
 from doctorly.api.routes.doctors import router as doctors_router
 from doctorly.api.routes.staff import router as staff_router
-from doctorly.core.config import get_settings
+from doctorly.core.config import configure_langsmith, configure_logging, get_settings
 
 
 def create_app() -> FastAPI:
+    configure_logging()
+    configure_langsmith()
     settings = get_settings()
     provider = TracerProvider(
         resource=Resource.create({"service.name": settings.otel_service_name})
@@ -38,6 +41,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(chat_router)
     app.include_router(doctors_router)
     app.include_router(appointments_router)
     app.include_router(staff_router)

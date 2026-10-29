@@ -21,12 +21,18 @@ class RetrievalService:
         self.session = session
         self.embedding_service = embedding_service or get_embedding_service()
 
-    def search_faq(self, query: str, limit: int = 3) -> list[FAQDocument]:
+    def search_faq(
+        self,
+        query: str,
+        limit: int = 3,
+        max_distance: float | None = None,
+    ) -> list[FAQDocument]:
         return self.search_documents(
             query=query,
             document_model=FAQDocument,
             embedding_column=FAQDocument.embedding,
             limit=limit,
+            max_distance=max_distance,
         )
 
     def search_documents(
@@ -37,12 +43,15 @@ class RetrievalService:
         embedding_column: InstrumentedAttribute[list[float]],
         filters: Sequence[ColumnElement[bool]] = (),
         limit: int = 3,
+        max_distance: float | None = None,
     ) -> list[DocumentT]:
         normalized_query = query.strip()
         if not normalized_query:
             raise ValueError("Search query cannot be empty")
         if not 1 <= limit <= 50:
             raise ValueError("Search limit must be between 1 and 50")
+        if max_distance is not None and not 0 <= max_distance <= 2:
+            raise ValueError("Maximum cosine distance must be between 0 and 2")
 
         query_embedding = self.embedding_service.embed_text(normalized_query)
         distance = embedding_column.cosine_distance(query_embedding)
@@ -52,4 +61,6 @@ class RetrievalService:
             .order_by(distance)
             .limit(limit)
         )
+        if max_distance is not None:
+            statement = statement.where(distance <= max_distance)
         return list(self.session.scalars(statement).all())

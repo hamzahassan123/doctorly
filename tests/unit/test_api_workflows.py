@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from doctorly.core.config import get_settings
 from doctorly.core.security import hash_password
 from doctorly.db.session import get_session
+from doctorly.api.routes import chat as chat_route
 from doctorly.main import app
 from doctorly.models import (
     Appointment,
@@ -251,6 +252,76 @@ def test_duplicate_registration_and_invalid_password_are_rejected(
 
 
 def test_missing_bearer_token_is_rejected(api_client: AsyncClient) -> None:
-    response = asyncio.run(api_client.get("/appointments"))
+    async def workflow() -> None:
+        appointments = await api_client.get("/appointments")
+        chat = await api_client.post(
+            "/chat",
+            json={"message": "What are visiting hours?"},
+        )
 
-    assert response.status_code == 401
+        assert appointments.status_code == 401
+        assert chat.status_code == 401
+
+    asyncio.run(workflow())
+
+
+def test_chat_uses_authenticated_patient_id(
+    api_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeGraph:
+        def __init__(self) -> None:
+            self.input_state = None
+
+        async def astream_events(self, state, **kwargs):
+            self.input_state = state
+            yield {
+                "event": "on_chain_end",
+                "data": {
+                    "output": {
+                        "intent": "faq",
+                        "response": "Visiting hours are 9 AM to 5 PM.",
+                        "retrieved_context": [],
+                        "available_slots": [],
+                    }
+                },
+            }
+
+    async def workflow() -> None:
+        registration = await api_client.post(
+            "/register",
+            json={
+                "email": "chat-patient@example.com",
+                "password": "secure-test-password-5",
+                "full_name": "Chat Patient",
+            },
+        )
+        login = await api_client.post(
+            "/login",
+            json={
+                "email": "chat-patient@example.com",
+                "password": "secure-test-password-5",
+            },
+        )
+        assert registration.status_code == 201
+        assert login.status_code == 200
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        current_user = await api_client.get("/me", headers=headers)
+        assert current_user.status_code == 200
+
+        fake_graph = FakeGraph()
+        monkeypatch.setattr(chat_route, "patient_support_graph", fake_graph)
+        response = await api_client.post(
+            "/chat",
+            headers=headers,
+            json={"message": "What are visiting hours?"},
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        stream = b"".join([chunk async for chunk in response.aiter_bytes()]).decode()
+        assert "event: message" in stream
+        assert "Visiting hours are 9 AM to 5 PM." in stream
+        assert fake_graph.input_state["patient_id"] == UUID(current_user.json()["id"])
+
+    asyncio.run(workflow())
