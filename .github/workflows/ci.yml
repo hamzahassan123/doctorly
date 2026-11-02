@@ -35,13 +35,30 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
+      - name: Enable pgvector extension
+        env:
+          PGPASSWORD: doctorly_test
+        run: >-
+          psql
+          --host=localhost
+          --username=doctorly_test
+          --dbname=doctorly_test
+          --command="CREATE EXTENSION IF NOT EXISTS vector;"
+
       - name: Run backend tests
         env:
           TEST_DATABASE_URL: postgresql+psycopg://doctorly_test:doctorly_test@localhost:5432/doctorly_test
+          LLM_PROVIDER: google
+          LLM_MODEL: gemini-1.5-flash
+          GEMINI_API_KEY: dummy
+          GOOGLE_API_KEY: dummy
+          LANGSMITH_TRACING: "false"
         run: uv run pytest
 
   frontend:
     runs-on: ubuntu-latest
+    env:
+      VITE_API_URL: http://localhost:8000
     defaults:
       run:
         working-directory: frontend

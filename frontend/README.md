@@ -15,6 +15,9 @@ npm run dev
 
 Open `http://localhost:5173`. The Doctorly API must be reachable at
 `http://localhost:8000`, and its CORS configuration must allow that origin.
+Set `VITE_API_URL` at Vite build time to use another API origin. The default
+falls back to `http://localhost:8000`; the production Compose build uses the
+same-origin `/api` Nginx proxy.
 
 Build a production bundle with `npm run build`.
 

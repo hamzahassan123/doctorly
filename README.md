@@ -1,127 +1,220 @@
 # Doctorly
 
-Doctorly is a hospital outpatient appointment and patient-support platform.
-The backend currently supports patient registration/login, doctor and slot
-lookup, patient-owned appointment booking/listing, and protected staff
-appointment listing/updates. AI workflows, frontend screens, and deployment
-infrastructure have not been implemented yet.
+Doctorly is an outpatient appointment and patient-support platform. It combines
+a deterministic FastAPI backend for authentication and booking with a
+LangGraph-based patient-support agent, a React patient/staff frontend, and
+PostgreSQL with pgvector for policy retrieval.
+
+> **Development and privacy notice:** this is a project under active
+> development, not a certified clinical system. Do not enter real patient
+> information or rely on it for medical advice or emergency response. The
+> emergency response directs users to local emergency care; it does not replace
+> emergency services.
+
+## Architecture
+
+```text
+Patient / staff browser
+        │
+        ▼
+React + TypeScript frontend
+        │ JSON API + Server-Sent Events
+        ▼
+FastAPI ─────────────── LangGraph patient-support flow
+   │                     ├─ emergency phrase guardrail
+   │                     ├─ configurable LLM intent routing
+   │                     ├─ pgvector FAQ retrieval
+   │                     └─ appointment availability lookup
+   ├─ deterministic auth, authorization, booking, audit
+   ├─ SQLAlchemy + Alembic
+   └─ async SMTP appointment confirmation with ICS invite
+        │
+        ▼
+PostgreSQL + pgvector                 Redis
+```
+
+- **API:** FastAPI, Pydantic, SQLAlchemy, Alembic, and JWT bearer
+  authentication. Booking rules and staff authorization are enforced in the
+  backend, not by the frontend.
+- **Patient support:** LangGraph checks emergency phrases before LLM routing.
+  FAQ answers are sourced from retrieved hospital knowledge-base documents;
+  they are not generated from the model's general knowledge. Appointment
+  intent lists real available database slots.
+- **Retrieval:** `sentence-transformers` generates 384-dimensional
+  `all-MiniLM-L6-v2` embeddings. PostgreSQL/pgvector performs cosine retrieval
+  and uses an HNSW index.
+- **Web client:** React, TypeScript, Vite, Tailwind CSS, TanStack Query, and
+  React Router. Patient routes cover sign-in, registration, chat, and booking;
+  staff routes provide protected appointment management.
+- **Operations:** Dockerfiles, local and production Compose definitions, GitHub
+  Actions CI, structured JSON logs, optional OpenTelemetry export, and optional
+  LangSmith tracing.
+
+See [docs/architecture.md](docs/architecture.md) for additional domain and API
+details, and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the AWS deployment
+plan.
+
+## Repository layout
+
+```text
+alembic/                    Database migrations
+docs/                       Architecture and operations documentation
+frontend/                   React/Vite patient and staff application
+scripts/                    FAQ ingestion utilities and source data
+src/doctorly/
+  agents/                   LangGraph state, nodes, graph, and safety checks
+  api/routes/               FastAPI route handlers
+  core/                     Settings, LLM factory, and security
+  db/                       SQLAlchemy engine and session
+  models/                   ORM entities and enums
+  repositories/             Persistence queries
+  schemas/                  API contracts
+  services/                 Auth, bookings, email, embeddings, retrieval
+tests/
+  unit/                     Unit and API workflow tests
+  integration/              PostgreSQL booking and retrieval tests
+```
 
 ## Prerequisites
 
-- Python 3.12 or newer
+- Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
-- Docker with Docker Compose (for the local stack)
+- Node.js 20+ and npm (frontend)
+- Docker Compose and sufficient disk space for local PostgreSQL and the CPU
+  PyTorch / sentence-transformers dependencies, or an externally reachable
+  PostgreSQL instance with pgvector and Redis
 
-## Local setup
+## Local development
 
-1. Start the local API, PostgreSQL/pgvector, and Redis services:
+### Backend and supporting services
+
+1. Copy the example environment file and replace the development signing key.
+   The example contains dummy values only; never use them outside a disposable
+   local environment.
 
    ```powershell
-   if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-   # Generate a local signing secret and add it to the ignored .env file.
+   Copy-Item .env.example .env
    uv run python -c "import secrets; print(secrets.token_urlsafe(48))"
-   docker compose up --build
    ```
 
-   The command prints a random signing secret; copy it into the
-   `DOCTORLY_JWT_SECRET_KEY` line in `.env` before starting Compose. The API
-   waits for PostgreSQL and Redis health checks before starting. Override
-   `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` for local use as
-   needed. Authentication endpoints return HTTP 503 until a signing secret of
-   at least 32 bytes is configured. Never use the database defaults in
-   production.
+   Put the generated value in `DOCTORLY_JWT_SECRET_KEY` in `.env`. The key must
+   contain at least 32 bytes. Keep `.env` private and untracked.
 
-   To enable non-emergency patient chat, configure `LLM_PROVIDER` and
-   `LLM_MODEL` in `.env` and add the matching provider key. The default is
-   Google Gemini (`LLM_PROVIDER=google`, `LLM_MODEL=gemini-1.5-flash`) using
-   `GEMINI_API_KEY` or `GOOGLE_API_KEY`; OpenAI and Groq use their standard
-   `OPENAI_API_KEY` and `GROQ_API_KEY` variables. Emergency detection and its
-   fixed response work without an LLM key. The FAQ node responds only with
-   retrieved knowledge-base text; it does not ask an LLM to generate FAQ
-   answers.
-
-2. In a second terminal, apply the schema migration:
+2. Start PostgreSQL/pgvector and Redis:
 
    ```powershell
-   docker compose exec api alembic upgrade head
+   docker compose up -d db redis
    ```
 
-3. Check the API liveness and database readiness endpoints:
-
-   ```powershell
-   Invoke-RestMethod http://localhost:8000/health
-   Invoke-RestMethod http://localhost:8000/health/ready
-   ```
-
-4. To run tests on the host, install the declared dependencies and dev group:
+3. Install backend and development dependencies, migrate the database, and
+   start the API:
 
    ```powershell
    uv sync --group dev
-   uv run pytest
+   uv run alembic upgrade head
+   uv run uvicorn doctorly.main:app --reload
    ```
 
-For the PostgreSQL concurrency integration test, set `TEST_DATABASE_URL` to
-the running local PostgreSQL URL before running tests. PostgreSQL integration
-tests create and drop only uniquely named temporary schemas; they do not alter
-application tables. The retrieval test requires the `vector` extension,
-installed by the current Alembic migration. For example, with the default
-local Compose database in PowerShell:
+   The API is available at `http://localhost:8000`. Check `GET /health` for
+   liveness and `GET /health/ready` for database readiness. API docs are at
+   `http://localhost:8000/docs`.
+
+   To use the full local stack instead, `docker compose up --build` starts the
+   API, database, and Redis. Apply migrations with
+   `docker compose exec api alembic upgrade head`.
+
+4. Configure an LLM provider for non-emergency chat. Defaults are
+   `LLM_PROVIDER=google` and `LLM_MODEL=gemini-1.5-flash`; supply
+   `GEMINI_API_KEY` or `GOOGLE_API_KEY`. Emergency phrase detection and the
+   fixed emergency response do not require a provider key. OpenAI and Groq
+   keys are also represented in the settings, but their LangChain integrations
+   must be added before selecting those providers.
+
+5. To seed the hospital FAQ knowledge base, after migrations:
+
+   ```powershell
+   uv run python scripts/ingest_faqs.py
+   ```
+
+   This reads `scripts/data/hospital_kb.json`, embeds the title and content, and
+   upserts documents by their stable title-derived key. The first run may
+   download the embedding model and require substantial disk space.
+
+### Frontend
+
+In another terminal:
+
+```powershell
+Set-Location frontend
+npm ci
+npm run dev
+```
+
+Open `http://localhost:5173`. The frontend currently calls
+`http://localhost:8000` directly; the API CORS policy allows this local origin.
+See [frontend/README.md](frontend/README.md) for the frontend feature summary.
+
+## Tests
+
+Run unit and API workflow tests with:
+
+```powershell
+uv sync --group dev
+uv run pytest
+```
+
+PostgreSQL integration tests are skipped unless `TEST_DATABASE_URL` is set.
+They create uniquely named temporary schemas and drop only those schemas when
+finished. For local Docker Compose PostgreSQL, use:
 
 ```powershell
 $env:TEST_DATABASE_URL = "postgresql+psycopg://doctorly:doctorly@localhost:5432/doctorly"
+uv run alembic upgrade head
 uv run pytest
 Remove-Item Env:TEST_DATABASE_URL
 ```
 
-## FAQ retrieval
+The test database user needs permission to create and drop schemas. The
+retrieval integration test additionally requires the pgvector extension; the
+Alembic migrations install it. Do not point integration tests at production
+data.
 
-Apply migrations before ingesting documents, then load the synthetic policy
-examples:
+Frontend checks:
 
 ```powershell
-uv run alembic upgrade head
-uv run python scripts/ingest_faqs.py
+Set-Location frontend
+npm ci
+npm run lint
+npm run build
 ```
 
-The first ingestion or retrieval call downloads and caches
-`all-MiniLM-L6-v2` locally. The script reads FAQ entries from
-`scripts/data/hospital_kb.json`, creates stable title-based keys, and embeds
-each title and its content. Ingestion updates documents by stable key, so
-rerunning the command refreshes embeddings instead of duplicating rows.
+GitHub Actions runs backend tests with a temporary PostgreSQL/pgvector service,
+then runs the frontend lint/build checks and validates the backend Docker
+image build.
 
-FAQ retrieval uses pgvector cosine distance and the HNSW index. The generic
-retrieval method accepts a model and SQLAlchemy filter expressions, allowing
-future document models to apply ownership predicates such as `patient_id`
-before nearest-neighbor results are returned. This milestone adds no AI
-generation or LangGraph workflow.
+## API capabilities
 
-## Patient chat
+Public and authenticated routes include:
 
-Authenticated patients can send `POST /chat` with `{"message": "..."}`. The
-graph checks emergency phrases before calling the LLM router. Emergency
-messages receive a fixed response directing the patient to the Emergency
-Department and local emergency numbers; this path does not require an LLM key.
-Other messages require a configured LLM provider and its API key. The provider
-and model are selected with `LLM_PROVIDER` and `LLM_MODEL`; Google is included
-by default, while selecting OpenAI or Groq also requires that provider's
-LangChain integration to be installed. FAQ answers consist only of retrieved
-hospital knowledge-base entries; unclear questions receive a clarification
-prompt. Appointment intent lists real available database slots and asks the
-patient to select one; this chat node does not book an appointment.
+| Route | Purpose |
+|---|---|
+| `POST /register`, `POST /login`, `GET /me` | Patient account and bearer-token auth |
+| `GET /doctors`, `GET /slots` | Active doctors and available appointment slots |
+| `POST /appointments`, `GET /appointments` | Book a slot and list the current patient's appointments |
+| `GET /staff/appointments` | Staff-only appointment queue |
+| `PATCH /staff/appointments/{appointment_id}` | Staff-only status/flag updates |
+| `POST /chat` | Authenticated patient-support stream |
+| `GET /health`, `GET /health/ready` | Liveness and database readiness |
 
-`/health` is a liveness check. `/health/ready` executes a database query and
-returns HTTP 503 when PostgreSQL is unavailable. The database container health
-check also gates API startup. Database migrations are applied explicitly using
-the command above, not automatically during API startup.
+Public registration creates patient accounts only. Staff identities must be
+provisioned through a trusted administrative process. Database migrations are
+explicit; application startup does not automatically alter the schema.
 
-## Architecture
+## Configuration and security
 
-See [docs/architecture.md](docs/architecture.md) for the current model,
-authorization boundaries, API conventions, migration strategy, and planned
-repository structure.
-
-## Current limitations
-
-The API also exposes health checks. Staff accounts are not created by public
-registration and must be provisioned through a trusted administrative path.
-No real patient data should be used.
+`.env.example` documents the supported local, LLM, tracing, email, and AWS
+deployment variables. Copy it to an ignored `.env` for local work. For AWS,
+store runtime secrets in AWS Secrets Manager or Systems Manager Parameter Store
+and grant access through IAM roles. Do not commit credentials, real patient
+data, or populated environment files. Review
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) before deploying.

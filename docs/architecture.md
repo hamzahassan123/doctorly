@@ -1,37 +1,34 @@
-# Architecture and initial contracts
+# Architecture and implementation notes
 
 ## Scope and structure
 
-The project is being built incrementally. Milestone 0 established database
-models, Pydantic contracts, configuration, and migrations. Milestone 1 added
-the FastAPI runtime and container setup. Milestone 2 adds authentication,
-authorization, and deterministic appointment operations; no AI workflows are
-implemented.
+Doctorly combines a deterministic appointment/authentication backend, a
+LangGraph patient-support flow, and a React frontend. PostgreSQL with pgvector
+stores application data and FAQ embeddings. See the root README for a project
+overview and `docs/DEPLOYMENT.md` for production deployment guidance.
 
 ```text
-.github/                 # GitHub automation in a later milestone
+.github/workflows/        # CI checks
 alembic/                 # Versioned database schema migrations
-docs/                    # Architecture, API conventions, and decisions
-frontend/                # React + TypeScript client (scaffold only in M0)
+docs/                    # Architecture and deployment documentation
+frontend/                # React + TypeScript patient/staff application
 src/doctorly/
-  core/                  # Environment-backed settings
+  agents/                 # LangGraph patient-support flow and safety checks
+  api/routes/             # FastAPI route handlers
+  core/                   # Settings, security, and LLM factory
   db/                    # SQLAlchemy engine and session lifecycle
   models/                # SQLAlchemy entities and domain enums
   schemas/               # Pydantic request/response contracts
-  api/routes/            # FastAPI route handlers
   repositories/          # Persistence queries
-  services/              # Deterministic business rules
-  agents/                # LangGraph workflows (later)
-  integrations/          # External service adapters (later)
+  services/               # Auth, booking, email, embedding, retrieval
 tests/
   unit/
-  integration/           # Database/API integration coverage (later)
-docker/                  # Container setup (Milestone 1)
+  integration/            # PostgreSQL concurrency and retrieval coverage
 ```
 
-The current source package uses the existing `src/doctorly` layout. Docker and
-the executable frontend are intentionally deferred until their planned
-milestones rather than added as empty or nonfunctional applications.
+The source package uses the `src/doctorly` layout. Dockerfiles, local/production
+Compose files, and GitHub Actions CI are present. CI builds the backend image
+for validation; AWS image publishing and deployment are not configured yet.
 
 ## Initial domain
 
@@ -99,24 +96,19 @@ service and database transaction to create an appointment. Responses use the
 Pydantic schemas. Staff operations use staff role checks and write audit
 events.
 
-## Milestone sequence
+## Current milestone status
 
-1. Contracts and scaffolding (complete).
-2. FastAPI health-check skeleton, OpenTelemetry request instrumentation, and
-   PostgreSQL/pgvector + Redis Compose setup (complete).
-3. Deterministic appointment services and authentication/authorization
-   (complete).
-4. HTTP integration coverage and a real-data frontend shell (next).
-5. Document ingestion and retrieval without an agent.
-6. Validated LangGraph workflow over the established services.
-7. Privacy-aware tracing, structured logging, and audit coverage.
-8. SSE chat and reliable asynchronous booking email.
-9. Complete patient and staff React experiences.
-10. CI/CD and a cost-reviewed AWS deployment proposal.
-11. Evaluation, hardening, and portfolio documentation.
+Milestones 0–7 have established the database contracts and migrations,
+FastAPI/Docker runtime, deterministic authentication and booking, pgvector FAQ
+retrieval, LangGraph patient support, model-provider configuration, SSE chat,
+optional LangSmith/OpenTelemetry tracing, structured JSON logging, booking
+email with an ICS attachment, React patient/staff screens, and GitHub Actions
+CI. The CI workflow currently validates and builds the backend image; it does
+not push images or deploy AWS resources.
 
-No AWS resources should be provisioned without explicit approval and a
-cost review against the project's six-month budget target.
+The AWS deployment approach and outstanding production integration work are
+documented in `docs/DEPLOYMENT.md`. Provisioning cloud resources requires an
+approved account, region, security review, and cost review.
 
 ## Milestone 1 runtime
 
@@ -210,10 +202,11 @@ real future available slots and asks the patient to select one; appointment
 creation still goes through the deterministic booking API.
 
 `POST /chat` requires an authenticated patient and takes the patient ID from
-the verified database user, never from request data. The intent router obtains
-its model from `doctorly.core.llm.get_llm()`, configured by `LLM_PROVIDER` and
-`LLM_MODEL`. Google Gemini is the default and uses `GEMINI_API_KEY` or
-`GOOGLE_API_KEY`; OpenAI and Groq use their standard provider keys and require
-their LangChain integrations to be installed. Direct emergency handling does
-not need an LLM key. No HITL persistence or LangSmith tracing is included in
-this milestone.
+the verified database user, never from request data. The response is delivered
+over Server-Sent Events. The intent router obtains its model from
+`doctorly.core.llm.get_llm()`, configured by `LLM_PROVIDER` and `LLM_MODEL`.
+Google Gemini is the default and uses `GEMINI_API_KEY` or `GOOGLE_API_KEY`;
+other providers require their corresponding LangChain integrations. Direct
+emergency handling does not need an LLM key. LangSmith tracing is configurable
+and disabled by default; traces can contain prompts and must be treated as
+sensitive data.

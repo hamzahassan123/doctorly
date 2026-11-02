@@ -35,6 +35,7 @@ services:
     environment:
       DOCTORLY_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-doctorly}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-doctorly}
       DOCTORLY_JWT_SECRET_KEY: ${DOCTORLY_JWT_SECRET_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS}
       DOCTORLY_LLM_PROVIDER: ${DOCTORLY_LLM_PROVIDER:-google}
       DOCTORLY_LLM_MODEL: ${DOCTORLY_LLM_MODEL:-gemini-1.5-flash}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
@@ -52,13 +53,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
     restart: unless-stopped
     depends_on:
       - api
     ports:
       - "80:80"
-    environment:
-      VITE_API_BASE_URL: http://api:8000
 
 volumes:
   postgres_data:

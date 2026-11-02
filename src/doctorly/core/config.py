@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+psycopg://doctorly:doctorly@localhost:5432/doctorly"
     )
+    cors_origins: str = Field(
+        default="http://localhost:5173",
+        validation_alias=AliasChoices("CORS_ORIGINS", "DOCTORLY_CORS_ORIGINS"),
+    )
     jwt_secret_key: str | None = None
     jwt_access_token_minutes: int = Field(default=30, gt=0, le=1440)
     llm_provider: str = Field(
