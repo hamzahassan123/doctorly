@@ -272,7 +272,7 @@ export async function streamChat(
   };
 
   try {
-    while (true) {
+    for (;;) {
       const { done, value } = await reader.read();
       buffer += decoder.decode(value, { stream: !done });
       let boundary = buffer.search(/\r?\n\r?\n/);
