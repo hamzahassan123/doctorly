@@ -21,9 +21,12 @@ COPY --chown=appuser:appuser alembic.ini ./alembic.ini
 COPY --chown=appuser:appuser alembic ./alembic
 RUN uv sync --frozen --no-dev
 
-COPY --chown=appuser:appuser scripts ./scripts
+#COPY --chown=appuser:appuser scripts ./scripts
 USER appuser
 
 EXPOSE 8000
 
 CMD ["uvicorn", "doctorly.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+
+# image creation 
