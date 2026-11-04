@@ -9,6 +9,20 @@ interface ChatMessage {
   result?: ChatResult;
 }
 
+// Helper function to safely generate UUID across both secure (HTTPS) and non-secure (HTTP) contexts
+function generateUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Fallback for non-secure HTTP environments (where crypto.randomUUID is blocked by browsers)
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
+    (
+      +c ^
+      (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (+c / 4)))
+    ).toString(16)
+  );
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -22,11 +36,11 @@ export default function ChatPage() {
     if (!message || sending) return;
 
     const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: "user",
       content: message,
     };
-    const assistantId = crypto.randomUUID();
+    const assistantId = generateUUID();
     setMessages((current) => [
       ...current,
       userMessage,
