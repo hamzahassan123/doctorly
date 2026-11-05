@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from doctorly.models import (
     Appointment,
@@ -38,6 +38,7 @@ class AppointmentRepository:
         )
         query = (
             select(AvailabilitySlot)
+            .options(joinedload(AvailabilitySlot.doctor))
             .join(Doctor)
             .where(
                 Doctor.is_active.is_(True),
