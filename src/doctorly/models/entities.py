@@ -53,12 +53,17 @@ class TimestampMixin:
 # Base: database the parent class (which contains all the rules and propertiese that a DB needs)
 # Base: batati hai ke kaunsi Python classes database ki tables banengi.
 # Base: apny pass aik list maintain krta hai k kis kis na inherit kia hai( User, Appointment,) 
-# Base.metadata.create_all(bind=engine) > SQLAlchemy base list chk krta hai, jino na inherit kia hota hai, un sab k SQL Tables db main jenerate kar daita hai
-# 
+# Base.metadata.create_all(bind=engine) > SQLAlchemy base list chk krta hai, jino na inherit kia hota hai, un sab k SQL Tables db main generate kar daita hai
+# Mapped: SQLAchemy ke type annotation hai. SQLAlchemy 2.0 ki type annotation hai jo Python type checkers (jaise mypy) aur editor ko batati hai ke is attribute ke andar kis type ki value store hogi (yahan UUID)
+# mapped_column(): aik function hai jo batata hai ke kaunsa column database table mein create hoga aur uska type kya hoga. Asal mein yahi function database table ke andar ek physical column create karta hai aur uske rules/constraints set karta hai.
+# mapped_column() ke andar 1st parameter: SQLAlchemy Data Type hota hai (jaise Uuid, String, Integer, Boolean, DateTime, etc.).
+# Baqi ke parameters (Attributes): Unko arguments ya column options / constraints{rules} kehte hain. Yeh column ki behadd ahem khusosiyat (properties) define karte hain like primary key, unique, nullable, default value, foreign key, etc.
+
+
 class User(TimestampMixin, Base):
     __tablename__ = "users"
 
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4) # QLAlchemy is line ko read karta hai aur isay ek DDL (Data Definition Language) query mein translate kar deta hai (id UUID PRIMARY KEY)
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     """Database mein role naam ka ek column banao jo ek text/string ho (length 20 tak), ismein sirf wahi values aanay do jo UserRole class mein hain (values_callable aur create_constraint ki madad se validation lagao), aur isay khali mat chhorna (nullable=False)."""
@@ -122,11 +127,11 @@ class Doctor(TimestampMixin, Base):
 class AvailabilitySlot(Base):
     __tablename__ = "availability_slots"
     __table_args__ = (
-        CheckConstraint("ends_at > starts_at", name="ends_after_starts"),
+        CheckConstraint("ends_at > starts_at", name="ends_after_starts"), # for data integrity, ensure that the end time is always after the start time
         UniqueConstraint(
-            "doctor_id", "starts_at", "ends_at", name="uq_slot_doctor_interval"
+            "doctor_id", "starts_at", "ends_at", name="uq_slot_doctor_interval" # duplicate prevention, ensure that a doctor cannot have overlapping availability slots
         ),
-        Index("ix_availability_slots_doctor_starts_at", "doctor_id", "starts_at"),
+        Index("ix_availability_slots_doctor_starts_at", "doctor_id", "starts_at"), # performance optimization, create an index on doctor_id and starts_at to speed up queries that filter by these columns
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
@@ -141,7 +146,7 @@ class AvailabilitySlot(Base):
         back_populates="availability_slot"
     )
 
-
+# Indexes ka use fast search aur unique rules (constraints) enforce karne ke liye hota hai. Indexes database k andar ek alag data structure hota hai jo search ko fast kar deta hai. Agar hum frequently kisi column pe search karte hain, toh us column pe index create karna chahiye.
 class Appointment(TimestampMixin, Base):
     __tablename__ = "appointments"
     __table_args__ = (
@@ -238,7 +243,7 @@ class FAQDocument(TimestampMixin, Base):
             postgresql_with={"m": 16, "ef_construction": 64},
         ),
     )
-
+#(postgresql_using, postgresql_ops, postgresql_with) inko Database Index Options ya Storage Parameters / Tuning Parameter kehty hain. Yeh database ke internal search engine ke liye instructions/settings hain ke woh data ko physical hard drive ya RAM par kaise arrange karega.
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     document_key: Mapped[str] = mapped_column(
         String(150), nullable=False, unique=True

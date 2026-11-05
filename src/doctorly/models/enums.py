@@ -1,3 +1,4 @@
+# provide pre-defined choises
 from enum import StrEnum
 
 
